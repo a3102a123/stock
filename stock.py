@@ -13,71 +13,19 @@ def opt():
 
     return parser.parse_args()
 
-def main(args):
-    
-    # option setting
-    year = args.year
-    bonus = args.bonus
-    monthly_invest = args.money
-    stock_bond_ratio = args.ratio
-    is_show = args.show
+def roi(stock, bond, total_investment):
+    return ((stock + bond) / total_investment - 1) * 100
 
-    # Average annualized rate of return
-    df = pd.read_csv("Annual_Returns.csv")
-    stock_ret_rates = df['Rate'].to_numpy() / 100
-    # exit()
-    stock_rate = 0.08
-    bond_rate = 0.04
-
-    x_year = [0]
-    y_total = [0]
-    y_stock = [0]
-    y_bond = [0]
-    total_ret_rate = 1
-
-    for i in range(year):
-        year_stock_rate = stock_ret_rates[i % len(stock_ret_rates)]
-        month_stock_rates = generate_monthly_factors((1+year_stock_rate), ratio=0.2)
-        for j in range(12):
-            if j == 11:
-                funds = monthly_invest + bonus
-            else:
-                funds = monthly_invest
-            stock_rate = month_stock_rates[j]
-            y_stock.append((y_stock[-1] + funds * stock_bond_ratio) * (1 + stock_rate))
-            # y_stock.append(stock_rate)
-            y_bond.append((y_bond[-1] + funds * (1 - stock_bond_ratio)) * (1 + bond_rate))
-            x_year.append(j+1)
-        
-        total_ret_rate *= (1 + year_stock_rate * stock_bond_ratio + bond_rate * (1 - stock_bond_ratio))
-        annyal_ret_rate = (total_ret_rate - 1) / (i + 1)
-        print("="*40 + f" {i+1} years " + "="*40)
-        print(f"Total Property: {int(y_stock[-1] + y_bond[-1])}")
-        print(f"Total Return Rate: {total_ret_rate*100:.4f}%")
-        print(f"Annualized Rate of Return: {annyal_ret_rate*100:.4f}%")
-            
-        # x_year.append(i+1)
-
-    y_stock = np.array(y_stock)
-    y_bond = np.array(y_bond)
-
-    # to K unit
-    # y_stock /= 1000
-    y_stock *= 100
-    y_bond /= 1000
-
-    if is_show:
-        plot_bond = stock_bond_ratio < 1.0
-        show(x_year, y_stock, y_bond, plot_bond)
-    
+def print_label(msg: str):
+    print("="*40 + f" {msg} " + "="*40)
 
 def generate_monthly_factors(N, ratio=0.1, max_iter=10000):
     """
-    產生 12 個因子，其乘積為 N，且每個因子 ∈ [1 - ratio, 1 + ratio]
+    產生 12 個因子，其乘積為 N , 且每個因子 ∈ [1 - ratio, 1 + ratio]
     
     參數：
-        N (float): 目標乘積（例如 1.5）
-        ratio (float): 每個因子的最大偏移比例（例如 0.1 表 ±10%）
+        N (float): 目標乘積（例如 1.5)
+        ratio (float): 每個因子的最大偏移比例（例如 0.1 表 ±10%)
         max_iter (int): 最多嘗試次數
         seed (int): 隨機種子（可選）
     
@@ -92,27 +40,100 @@ def generate_monthly_factors(N, ratio=0.1, max_iter=10000):
         adjusted = factors * scale**(1/12)
 
         # tolerat 3 month dramatically change
-        # TODO : limit value range not to too big
         if ((adjusted >= lower) & (adjusted <= upper)).sum() >= 9 and np.all((adjusted >= 1-0.6) & (adjusted <= 1+0.6)):
             return adjusted - 1
 
     raise ValueError("Can't find factor")
 
+def main(args):
+    
+    # option setting
+    year = args.year
+    bonus = args.bonus
+    monthly_invest = args.money
+    stock_bond_ratio = args.ratio
+    is_show = args.show
+
+    # Average annualized rate of return
+    df = pd.read_csv("Annual_Returns.csv")
+    stock_ret_rates = df['Rate'].to_numpy() / 100
+    # exit()
+    stock_rate = 0.08
+    bond_rate = 0.015
+
+    x_year = [0]
+    y_total = [0]
+    y_stock = [0]
+    y_bond = [0]
+    year_ret_rate = 1
+    total_money = 0
+
+    for i in range(year):
+        print_label(f"{i+1} years")
+        real_year_stock_rate = stock_ret_rates[i % len(stock_ret_rates)]
+        month_stock_rates = generate_monthly_factors((1+real_year_stock_rate), ratio=0.2)
+
+        year_stock_return = 1
+        for j in range(12):
+            if j == 11:
+                funds = monthly_invest + bonus
+            else:
+                funds = monthly_invest
+            total_money += funds
+            stock_rate = month_stock_rates[j]
+            year_ret_rate *= (1 + stock_rate)
+            
+            y_stock.append((y_stock[-1] + funds * stock_bond_ratio) * (1 + stock_rate))
+            # y_stock.append(stock_rate) # watch the monthly stock rate
+            x_year.append(i*12+j)
+            y_bond.append(y_bond[-1] + funds * (1 - stock_bond_ratio))
+            print(f"Monthly ROI: {roi(y_stock[-1], y_bond[-1], total_money):>8.4f}% , Month stock rate {stock_rate * 100:>8.4f}%")
+        
+        # assume return once per year
+        y_bond[-1] = (y_bond[-1] + y_bond[-13] * (bond_rate))
+        
+        # year_ret_rate *= (year_stock_return * stock_bond_ratio + bond_rate * (1 - stock_bond_ratio))
+        annyal_ret_rate = (year_ret_rate - 1) / (i + 1)
+        print("")
+        print(f"Total Property: {int(y_stock[-1] + y_bond[-1])}")
+        print(f"Total ROI: {roi(y_stock[-1], y_bond[-1], total_money):.4f}%")
+        print(f"Annualized ROI: {roi(y_stock[-1], y_bond[-1], total_money) / (i+1):.4f}%")
+        print(f"Total Return Rate of Stock starting from first year: {year_ret_rate*100:.4f}%")
+        print(f"Annualized ROI of Stock starting from first year: {annyal_ret_rate*100:.4f}%")
+            
+        # x_year.append(i+1)
+
+    print_label("Summary")
+    print(f"Investment per year: {monthly_invest*12 + bonus}")
+    print(f"Total investment: {total_money}")
+    print(f"Current property: {int(y_stock[-1] + y_bond[-1])}")
+    y_stock = np.array(y_stock)
+    y_bond = np.array(y_bond)
+
+    # to K unit
+    y_stock /= 1000
+    y_bond /= 1000
+
+    if is_show:
+        plot_bond = stock_bond_ratio < 1.0
+        show(x_year, y_stock, y_bond, plot_bond)
+
 def show(x_year, y_stock, y_bond, plot_bond=False):
     # lable all point
-    for i in range(len(x_year)):
+    for i in range(0,len(x_year),12):
         plt.text(x_year[i], y_stock[i], f"{y_stock[i]:.2f}K", fontsize=9, ha='left', va='bottom')
         if plot_bond and not(i%5):
             plt.text(x_year[i], y_bond[i], f"{y_bond[i]:.2f}K", fontsize=9, ha='left', va='bottom')
     
     plt.plot(x_year, y_stock, label="Stock", marker='o', color='red')
     if plot_bond:
-        plt.plot(x_year, y_bond, label="Stock", marker='x', color='blue')
-    plt.xlabel("Year")
+        plt.plot(x_year, y_bond, label="Bond", marker='x', color='blue')
+    plt.xlabel("Month")
     plt.ylabel("Property (unit : k)")
+    plt.legend()
     plt.show()
 
 if __name__ == "__main__":
     args = opt()
-    np.random.seed(12)
+    # np.random.seed(12)
     main(args)
